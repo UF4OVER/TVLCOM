@@ -251,6 +251,3 @@ cmake --build cmake-build-debug-mingw --config Debug --target TVLCOM
 - 可引入发送窗口与 ACK 等待的重发机制（可靠性增强）。
 - 可在 TLV 数据中加入时间戳与序列号，方便应用层追踪。
 
-
----
-有任何接入问题或需要我补充 STM32 示例工程/代码片段，请提出具体外设与需求（串口号、是否 DMA、是否 RTOS），我可以直接按你的项目结构补齐代码。
