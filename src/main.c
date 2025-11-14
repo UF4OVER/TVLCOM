@@ -133,7 +133,6 @@ int main(void)
             }
         }
     }
-
     if (g_serial) serial_close(g_serial);
     return 0;
 }
