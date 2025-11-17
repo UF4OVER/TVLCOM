@@ -246,8 +246,9 @@ bool TLV_BuildFrame(uint8_t frame_id, const tlv_entry_t *tlv_entries, uint8_t tl
 
     /* Calculate CRC over Frame ID + Data Length + Data Segment */
     uint16_t crc = TLV_CalculateCRC16(&output_buffer[2], (uint16_t)(2 + data_length));
-    output_buffer[idx++] = (uint8_t)(crc & 0xFF);        /* CRC low byte */
     output_buffer[idx++] = (uint8_t)((crc >> 8) & 0xFF); /* CRC high byte */
+    output_buffer[idx++] = (uint8_t)(crc & 0xFF);        /* CRC low byte */
+
 
     /* Frame Tail */
     output_buffer[idx++] = TLV_FRAME_TAIL_0;
