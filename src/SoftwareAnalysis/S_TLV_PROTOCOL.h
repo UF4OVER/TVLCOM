@@ -46,7 +46,7 @@ typedef enum {
 } tlv_error_t;
 
 /* Callback type for a valid frame */
-typedef void (*tlv_frame_callback_t)(uint8_t frame_id, uint8_t *data, uint8_t length, tlv_interface_t interface);
+typedef void (*tlv_frame_callback_t)(uint8_t frame_id, const uint8_t *data, uint8_t length, tlv_interface_t interface);
 
 /* Callback type for parser error */
 typedef void (*tlv_error_callback_t)(uint8_t frame_id, tlv_interface_t interface, tlv_error_t error);
@@ -77,9 +77,9 @@ typedef void (*tlv_error_callback_t)(uint8_t frame_id, tlv_interface_t interface
 /* TLV Type definitions (generic utility types, user can define custom IDs) */
 #define TLV_TYPE_CONTROL_CMD    0x10  /* 1 byte command */
 #define TLV_TYPE_INTEGER        0x20  /* int32 */
-#define TLV_TYPE_STRING         0x30  /* UTF-8 text */
-#define TLV_TYPE_ACK            0x06  /* ACK response */
-#define TLV_TYPE_NACK           0x15  /* NACK response */
+#define TLV_TYPE_STRING         0x30  /* UTF-8 text (length <= 255) */
+#define TLV_TYPE_ACK            0x06  /* ACK response (value[0] = original frame id) */
+#define TLV_TYPE_NACK           0x15  /* NACK response (value[0] = original frame id) */
 
 /* USER CODE END EC */
 
@@ -227,6 +227,19 @@ static inline void TLV_CreateFloat32Entry(uint8_t type, float fvalue, tlv_entry_
 
 /** Create a control command TLV entry (1 byte). */
 void TLV_CreateControlCmdEntry(uint8_t command, tlv_entry_t *entry);
+
+/** Create a UTF-8 string TLV entry (copies up to 255 bytes). */
+static inline void TLV_CreateStringEntry(const char *str, tlv_entry_t *entry)
+{
+    size_t len = 0;
+    while (str && str[len] && len < 255) len++;
+    entry->type = TLV_TYPE_STRING;
+    entry->length = (uint8_t)len;
+    for (size_t i = 0; i < len && i < sizeof(entry->inline_storage); ++i) {
+        entry->inline_storage[i] = (uint8_t)str[i];
+    }
+    entry->value = entry->inline_storage;
+}
 
 /** Extract float from a TLV entry that encodes int32 scaled by ×10000. */
 float TLV_ExtractFloatValue(const tlv_entry_t *entry);

@@ -58,6 +58,9 @@ static cmd_handler_t cmd_handlers[MAX_CMD_HANDLERS];
 static uint8_t cmd_ids[MAX_CMD_HANDLERS];
 static uint8_t cmd_handler_count = 0;
 
+static ack_notify_t s_ack_handler = NULL;
+static ack_notify_t s_nack_handler = NULL;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -126,28 +129,38 @@ void FloatReceive_SendNack(uint8_t frame_id, tlv_interface_t interface)
 /**
  * @brief TLV帧回调——接收到有效帧时调用
  */
-void FloatReceive_FrameCallback(uint8_t frame_id, uint8_t *data, uint8_t length, tlv_interface_t interface)
+void FloatReceive_FrameCallback(uint8_t frame_id, const uint8_t *data, uint8_t length, tlv_interface_t interface)
 {
-    /* Parse TLV entries from data segment */
     tlv_entry_t tlv_entries[16];
     uint8_t tlv_count = TLV_ParseData(data, length, tlv_entries, 16);
 
-    /* Do not respond to pure ACK/NACK frames to avoid loops */
     bool has_non_ack = false;
-    uint8_t i;
-    for (i = 0; i < tlv_count; i++) {
-        if (tlv_entries[i].type != TLV_TYPE_ACK && tlv_entries[i].type != TLV_TYPE_NACK) {
+    bool all_ack_or_nack = true;
+    for (uint8_t i = 0; i < tlv_count; i++) {
+        uint8_t t = tlv_entries[i].type;
+        if (t != TLV_TYPE_ACK && t != TLV_TYPE_NACK) {
             has_non_ack = true;
-            break;
+        }
+        if (t != TLV_TYPE_ACK && t != TLV_TYPE_NACK) {
+            all_ack_or_nack = false;
         }
     }
-    if (!has_non_ack) {
+    if (tlv_count == 0) return;
+
+    if (all_ack_or_nack && !has_non_ack) {
+        /* Notify upper layer but do not respond */
+        for (uint8_t i = 0; i < tlv_count; ++i) {
+            const tlv_entry_t *e = &tlv_entries[i];
+            if (e->length >= 1) {
+                uint8_t original_id = e->value[0];
+                if (e->type == TLV_TYPE_ACK && s_ack_handler) s_ack_handler(original_id, interface);
+                else if (e->type == TLV_TYPE_NACK && s_nack_handler) s_nack_handler(original_id, interface);
+            }
+        }
         return;
     }
 
     bool ok = dispatch_tlv_entries(frame_id, tlv_entries, tlv_count, interface);
-
-    /* Send ACK on success, NACK otherwise */
     if (ok) {
         FloatReceive_SendAck(frame_id, interface);
     } else {
@@ -191,6 +204,16 @@ void FloatReceive_RegisterCmdHandler(uint8_t command, cmd_handler_t handler)
         cmd_handlers[cmd_handler_count] = handler;
         cmd_handler_count = (uint8_t)(cmd_handler_count + 1);
     }
+}
+
+void FloatReceive_RegisterAckHandler(ack_notify_t handler)
+{
+    s_ack_handler = handler;
+}
+
+void FloatReceive_RegisterNackHandler(ack_notify_t handler)
+{
+    s_nack_handler = handler;
 }
 
 static bool handle_control_cmd(const tlv_entry_t *entry, tlv_interface_t interface)

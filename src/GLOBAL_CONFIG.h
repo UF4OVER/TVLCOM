@@ -89,8 +89,7 @@ typedef enum
 
 /* Private defines -----------------------------------------------------------*/
 /* USER CODE BEGIN Private defines */
-
-
+#define TLV_DEBUG_ENABLE 1  /* 1: enable protocol debug prints; 0: disable */
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

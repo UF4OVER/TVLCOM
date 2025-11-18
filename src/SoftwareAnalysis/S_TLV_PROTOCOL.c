@@ -19,7 +19,14 @@
 
 #include <memory.h>
 #include <stddef.h>
+#include <stdio.h>
+
 #include "GLOBAL_CONFIG.h"
+#if TLV_DEBUG_ENABLE
+#define TLV_DBG_PRINTF(...) do { printf(__VA_ARGS__); } while(0)
+#else
+#define TLV_DBG_PRINTF(...) do { } while(0)
+#endif
 
 /* USER CODE END Includes */
 
@@ -95,6 +102,8 @@ void TLV_SetErrorCallback(tlv_parser_t *parser, tlv_error_callback_t err_cb)
 /**
  * @brief Process a single byte through the parser state machine
  */
+// c
+// 修改文件: `src/SoftwareAnalysis/S_TLV_PROTOCOL.c` 里的 TLV_ProcessByte
 void TLV_ProcessByte(tlv_parser_t *parser, uint8_t byte)
 {
     switch (parser->state) {
@@ -104,99 +113,86 @@ void TLV_ProcessByte(tlv_parser_t *parser, uint8_t byte)
             parser->data_index = 0;
         }
         break;
-
     case TLV_STATE_HEADER_1:
-        if (byte == TLV_FRAME_HEADER_1) {
-            parser->state = TLV_STATE_FRAME_ID;
-        } else {
-            parser->state = TLV_STATE_HEADER_0;
-        }
+        parser->state = (byte == TLV_FRAME_HEADER_1) ? TLV_STATE_FRAME_ID : TLV_STATE_HEADER_0;
         break;
-
     case TLV_STATE_FRAME_ID:
         parser->frame_id = byte;
         parser->state = TLV_STATE_DATA_LEN;
         break;
-
     case TLV_STATE_DATA_LEN:
         parser->data_length = byte;
         if (parser->data_length > TLV_MAX_DATA_LENGTH) {
-            /* Invalid length, reset parser and report error */
-            if (parser->error_callback) {
-                parser->error_callback(parser->frame_id, parser->interface, TLV_ERR_LEN);
-            }
+            if (parser->error_callback) parser->error_callback(parser->frame_id, parser->interface, TLV_ERR_LEN);
             parser->state = TLV_STATE_HEADER_0;
             parser->data_index = 0;
         } else if (parser->data_length == 0) {
-            /* No data, go to CRC */
-            parser->state = TLV_STATE_CRC_LOW;
+            parser->state = TLV_STATE_CRC_LOW; /* first byte will be CRC high now (semantic kept) */
         } else {
             parser->state = TLV_STATE_DATA;
         }
         break;
-
     case TLV_STATE_DATA:
         if (parser->data_index < parser->data_length) {
             parser->data_buffer[parser->data_index++] = byte;
             if (parser->data_index >= parser->data_length) {
-                parser->state = TLV_STATE_CRC_LOW;
+                parser->state = TLV_STATE_CRC_LOW; /* first CRC byte (high) */
             }
         } else {
-            /* Overflow safety */
-            if (parser->error_callback) {
-                parser->error_callback(parser->frame_id, parser->interface, TLV_ERR_LEN);
-            }
+            if (parser->error_callback) parser->error_callback(parser->frame_id, parser->interface, TLV_ERR_LEN);
             parser->state = TLV_STATE_HEADER_0;
             parser->data_index = 0;
         }
         break;
-
-    case TLV_STATE_CRC_LOW:
-        parser->crc_received = byte;
-        parser->state = TLV_STATE_CRC_HIGH;
+    case TLV_STATE_CRC_LOW: /* treat as CRC high byte to match Python big-endian emission */
+        parser->crc_received = ((uint16_t)byte << 8);
+        parser->state = TLV_STATE_CRC_HIGH; /* next is low byte */
         break;
-
-    case TLV_STATE_CRC_HIGH:
-        parser->crc_received |= ((uint16_t)byte << 8);
+    case TLV_STATE_CRC_HIGH: /* treat as CRC low byte */
+        parser->crc_received |= (uint16_t)byte;
         parser->state = TLV_STATE_TAIL_0;
         break;
-
     case TLV_STATE_TAIL_0:
-        if (byte == TLV_FRAME_TAIL_0) {
-            parser->state = TLV_STATE_TAIL_1;
-        } else {
-            parser->state = TLV_STATE_HEADER_0;
-        }
+        parser->state = (byte == TLV_FRAME_TAIL_0) ? TLV_STATE_TAIL_1 : TLV_STATE_HEADER_0;
         break;
-
     case TLV_STATE_TAIL_1:
         if (byte == TLV_FRAME_TAIL_1) {
-            /* Frame complete, verify CRC */
             uint8_t crc_buffer[2 + TLV_MAX_DATA_LENGTH];
             crc_buffer[0] = parser->frame_id;
             crc_buffer[1] = parser->data_length;
             memcpy(&crc_buffer[2], parser->data_buffer, parser->data_length);
-
             parser->crc_calculated = TLV_CalculateCRC16(crc_buffer, (uint16_t)(2 + parser->data_length));
-
             if (parser->crc_calculated == parser->crc_received) {
-                /* CRC valid, invoke callback */
-                if (parser->frame_callback != NULL) {
-                    parser->frame_callback(parser->frame_id, parser->data_buffer,
-                                           parser->data_length, parser->interface);
+                TLV_DBG_PRINTF("[FRAME id=0x%02X len=%u] ", parser->frame_id, parser->data_length);
+                for (uint8_t i = 0; i < parser->data_length; ++i) {
+                    TLV_DBG_PRINTF("%02X", parser->data_buffer[i]);
+                    if (i + 1 < parser->data_length) TLV_DBG_PRINTF(" ");
+                }
+                TLV_DBG_PRINTF("\n");
+                tlv_entry_t entries[16];
+                uint8_t cnt = TLV_ParseData(parser->data_buffer, parser->data_length, entries, 16);
+                for (uint8_t k = 0; k < cnt; ++k) {
+                    TLV_DBG_PRINTF("  [TLV type=0x%02X len=%u] ", entries[k].type, entries[k].length);
+                    for (uint8_t j = 0; j < entries[k].length; ++j) {
+                        TLV_DBG_PRINTF("%02X", entries[k].value[j]);
+                        if (j + 1 < entries[k].length) TLV_DBG_PRINTF(" ");
+                    }
+                    TLV_DBG_PRINTF("\n");
+                }
+                if (parser->frame_callback) {
+                    /* Pass the entire TLV data segment (all concatenated TLVs) */
+                    parser->frame_callback(parser->frame_id,
+                                           (const uint8_t*)parser->data_buffer,
+                                           parser->data_length,
+                                           parser->interface);
                 }
             } else {
-                /* CRC invalid: report error */
-                if (parser->error_callback) {
-                    parser->error_callback(parser->frame_id, parser->interface, TLV_ERR_CRC);
-                }
+                if (parser->error_callback) parser->error_callback(parser->frame_id, parser->interface, TLV_ERR_CRC);
             }
         }
-        /* Reset parser regardless */
         parser->state = TLV_STATE_HEADER_0;
         parser->data_index = 0;
         break;
-
     default:
         parser->state = TLV_STATE_HEADER_0;
         parser->data_index = 0;
@@ -265,11 +261,10 @@ void TLV_BuildAckFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *outpu
 {
     tlv_entry_t ack_entry;
     ack_entry.type = TLV_TYPE_ACK;
-    ack_entry.length = 1;
-    ack_entry.inline_storage[0] = 0x06; /* ACK byte */
+    ack_entry.length = 1; /* payload carries original frame id */
+    ack_entry.inline_storage[0] = frame_id;
     ack_entry.value = ack_entry.inline_storage;
-
-    TLV_BuildFrame(frame_id, &ack_entry, 1, output_buffer, output_size);
+    TLV_BuildFrame(0 /* reply frame id policy: 0 */, &ack_entry, 1, output_buffer, output_size);
 }
 
 /**
@@ -279,11 +274,10 @@ void TLV_BuildNackFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *outp
 {
     tlv_entry_t nack_entry;
     nack_entry.type = TLV_TYPE_NACK;
-    nack_entry.length = 1;
-    nack_entry.inline_storage[0] = 0x15; /* NACK byte */
+    nack_entry.length = 1; /* payload carries original frame id */
+    nack_entry.inline_storage[0] = frame_id;
     nack_entry.value = nack_entry.inline_storage;
-
-    TLV_BuildFrame(frame_id, &nack_entry, 1, output_buffer, output_size);
+    TLV_BuildFrame(0, &nack_entry, 1, output_buffer, output_size);
 }
 
 /**

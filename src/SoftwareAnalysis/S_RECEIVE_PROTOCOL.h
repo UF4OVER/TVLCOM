@@ -9,12 +9,12 @@
  * @attention
  *
  * Frame Structure:
- * [Frame Header 2B: 0xFF 0xFF]
+ * [Frame Header 2B: 0xF0 0x0F]
  * [Frame ID 1B]
  * [Data Length 1B]
  * [Data Segment N bytes: TLV1 + TLV2 + ...]
  * [CRC16 2B]
- * [Frame Tail 2B: 0xED 0xED]
+ * [Frame Tail 2B: 0xE0 0x0D]
  *
  * Copyright (c) 2025 UF4.
  * All rights reserved.
@@ -44,16 +44,18 @@ extern "C" {
 
 typedef bool (*tlv_type_handler_t)(const tlv_entry_t *entry, tlv_interface_t interface);
 typedef bool (*cmd_handler_t)(uint8_t command, tlv_interface_t interface);
+/* ACK/NACK notification (value carries original frame id) */
+typedef void (*ack_notify_t)(uint8_t original_frame_id, tlv_interface_t interface);
 
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
 
-#define SYNC0 0xFF
-#define SYNC1 0xFF
+#define SYNC0 0xF0
+#define SYNC1 0x0F
 #define CMD_TYPE_CONTROL 0x00  // 0x00: Control command
-#define CMD_TYPE_ACK     0xFF  // 0xFF: Acknowledge
+#define CMD_TYPE_ACK     0xFF  // 0xFF: Acknowledge (legacy, use TLV_TYPE_ACK)
 
 /* USER CODE END EC */
 
@@ -107,7 +109,7 @@ void FloatReceive_SendNack(uint8_t frame_id, tlv_interface_t interface);
  * @param length Length of data segment
  * @param interface Communication interface
  */
-void FloatReceive_FrameCallback(uint8_t frame_id, uint8_t *data, uint8_t length, tlv_interface_t interface);
+void FloatReceive_FrameCallback(uint8_t frame_id, const uint8_t *data, uint8_t length, tlv_interface_t interface);
 
 /**
  * @brief Parser error callback - send NACK on error
@@ -123,6 +125,16 @@ void FloatReceive_RegisterTLVHandler(uint8_t type, tlv_type_handler_t handler);
  * @brief Register a handler for a specific control command (value inside TLV_TYPE_CONTROL_CMD)
  */
 void FloatReceive_RegisterCmdHandler(uint8_t command, cmd_handler_t handler);
+
+/**
+ * @brief Register a handler for ACK notification
+ */
+void FloatReceive_RegisterAckHandler(ack_notify_t handler);
+
+/**
+ * @brief Register a handler for NACK notification
+ */
+void FloatReceive_RegisterNackHandler(ack_notify_t handler);
 
 /* USER CODE END EFP */
 
