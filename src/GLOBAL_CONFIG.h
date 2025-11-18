@@ -38,48 +38,42 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
+#define TLV_DEBUG_ENABLE 0  /* 1: enable protocol debug prints; 0: disable */
+    /* Info IDs */
+#define INFO_VBUS   0xA1
+#define INFO_IBUS   0xA3
+#define INFO_PBUS   0xA5
+#define INFO_BUS    0xA7
+#define INFO_VOUT   0xB1
+#define INFO_IOUT   0xB3
+#define INFO_POUT   0xB5
+#define INFO_OUT    0xB7
 
-/* INFO ID  */
-typedef enum
-{
-    INFO_VBUS = 0X01,
-    INFO_IBUS = 0X03,
-    INFO_PBUS = 0X05,
-    INFO_BUS = 0X07,
-    INFO_VOUT = 0X11,
-    INFO_IOUT = 0X13,
-    INFO_POUT = 0X15,
-    INFO_OUT = 0X17,
-    INFO_VSET = 0X09,
-    INFO_ISET = 0X19,
-} INFO_ID_t;
+#define INFO_VSET   0xB9
+#define INFO_ISET   0xA9
 
-typedef enum
-{
-    SENSOR_FAN = 0X21,
-    SENSOR_TPS = 0X22,
-    SENSOR_INA = 0X23,
-    SENSOR_TEMP = 0X24,
-} SENSOR_ID_t;
+    /* Sensor IDs */
+#define SENSOR_FAN  0x21
+#define SENSOR_TPS  0x22
+#define SENSOR_INA  0x23
+#define SENSOR_TEMP 0x24
 
-typedef enum
-{
-    RAW_DAC1 = 0X31,
-    RAW_DAC2 = 0X32,
-    RAW_ADC = 0X33,
-    RAW_PID1 = 0X34,
-    RAW_PID2 = 0X35,
-} RAW_ID_t;
+    /* Raw IDs */
+#define RAW_DAC1    0x31
+#define RAW_DAC2    0x32
+#define RAW_ADC     0x33
+#define RAW_PID1    0x34
+#define RAW_PID2    0x35
 
-typedef enum
-{
-    DEVICE_NAME = 0XDA,
-    DEVICE_UID = 0XDB,
-    DEVICE_REV = 0XDC,
-    DEVICE_FLASH = 0XDE,
-    DEVICE_ESPID = 0XDF,
-    DEVICE_ESPFU = 0XFF,
-} BOARD_ID_t;
+    /* Board / Device IDs */
+#define DEVICE_NAME   0xDA
+#define DEVICE_UID    0xDB
+#define DEVICE_REV    0xDC
+#define DEVICE_FLASH  0xDE
+#define DEVICE_ESPID  0xDF
+#define DEVICE_ESPFU  0xFF
+
+
 
 /* USER CODE END EM */
 

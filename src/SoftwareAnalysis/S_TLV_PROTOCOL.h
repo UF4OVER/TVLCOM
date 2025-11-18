@@ -75,11 +75,11 @@ typedef void (*tlv_error_callback_t)(uint8_t frame_id, tlv_interface_t interface
 #define TLV_MAX_FRAME_SIZE      (TLV_OVERHEAD_SIZE + TLV_MAX_DATA_LENGTH)
 
 /* TLV Type definitions (generic utility types, user can define custom IDs) */
-#define TLV_TYPE_CONTROL_CMD    0x10  /* 1 byte command */
-#define TLV_TYPE_INTEGER        0x20  /* int32 */
-#define TLV_TYPE_STRING         0x30  /* UTF-8 text (length <= 255) */
-#define TLV_TYPE_ACK            0x06  /* ACK response (value[0] = original frame id) */
-#define TLV_TYPE_NACK           0x15  /* NACK response (value[0] = original frame id) */
+#define TLV_TYPE_CONTROL_CMD 0x01
+#define TLV_TYPE_INTEGER     0x02
+#define TLV_TYPE_STRING      0x03
+#define TLV_TYPE_ACK         0x08
+#define TLV_TYPE_NACK        0x09
 
 /* USER CODE END EC */
 
@@ -206,18 +206,16 @@ static inline void TLV_CreateRawEntry(uint8_t type, const uint8_t *buf, uint8_t 
     entry->value = buf;
 }
 
-/** Create an int32 TLV entry (little-endian). */
 static inline void TLV_CreateInt32Entry(uint8_t type, int32_t value, tlv_entry_t *entry)
 {
     entry->type = type;
     entry->length = 4;
-    entry->inline_storage[0] = (uint8_t)(value & 0xFF);
-    entry->inline_storage[1] = (uint8_t)((value >> 8) & 0xFF);
-    entry->inline_storage[2] = (uint8_t)((value >> 16) & 0xFF);
-    entry->inline_storage[3] = (uint8_t)((value >> 24) & 0xFF);
+    entry->inline_storage[0] = (uint8_t)((value >> 24) & 0xFF);
+    entry->inline_storage[1] = (uint8_t)((value >> 16) & 0xFF);
+    entry->inline_storage[2] = (uint8_t)((value >> 8) & 0xFF);
+    entry->inline_storage[3] = (uint8_t)(value & 0xFF);
     entry->value = entry->inline_storage;
 }
-
 /** Create a float32 TLV entry (IEEE-754 binary32, little-endian). */
 static inline void TLV_CreateFloat32Entry(uint8_t type, float fvalue, tlv_entry_t *entry)
 {

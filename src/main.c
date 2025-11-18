@@ -1,5 +1,3 @@
-// c
-// 文件: `src/main.c`
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -12,13 +10,28 @@
 #include "S_TRANSPORT_PROTOCOL.h"
 #include "S_RECEIVE_PROTOCOL.h"
 #include "S_TLV_PROTOCOL.h"
+
 #include "GLOBAL_CONFIG.h"
 
+#ifndef TLV_DEBUG_ENABLE
+#define TLV_DEBUG_ENABLE 0
+#endif
+#if TLV_DEBUG_ENABLE
+#define TLV_LOG(...) do { printf(__VA_ARGS__); } while(0)
+#else
+#define TLV_LOG(...) do { } while(0)
+#endif
+// -------------------------------------------------------------
+
 #define ENABLE_PERIODIC_SENDER 0
+#define ENABLE_RX_THREAD       1  /* 1: 在后台线程中接收并解析，避免主线程阻塞影响解析 */
 
 static serial_t *g_serial = NULL;
 static volatile bool g_running = true;
 static HANDLE g_sender_thread = NULL;
+#if ENABLE_RX_THREAD
+static HANDLE g_receiver_thread = NULL;
+#endif
 
 static BOOL WINAPI ConsoleCtrlHandler(DWORD dwCtrlType) {
     switch (dwCtrlType) {
@@ -43,7 +56,9 @@ static int uart_send_impl(const uint8_t *data, uint16_t len) {
 static bool on_integer_tlv(const tlv_entry_t *e, tlv_interface_t iface) {
     if (e->length == 4) {
         int32_t v = TLV_ExtractInt32Value(e);
-        printf("[RX][IF%u] INT32 type=0x%02X val=%ld\n", (unsigned)iface, e->type, (long)v);
+        uint32_t uv = (uint32_t)v;
+        TLV_LOG("[RX][IF%u] INT32 type=0x%02X len=4 val=%ld (u=%lu 0x%08lX)\n",
+                (unsigned)iface, e->type, (long)v, (unsigned long)uv, (unsigned long)uv);
         return true;
     }
     return false;
@@ -54,30 +69,39 @@ static bool on_float32_tlv(const tlv_entry_t *e, tlv_interface_t iface) {
                      ((uint32_t)e->value[1] << 8) |
                      ((uint32_t)e->value[2] << 16) |
                      ((uint32_t)e->value[3] << 24);
-        union { uint32_t u; float f; } conv = { .u = u };
-        printf("[RX][IF%u] F32  type=0x%02X val=%f\n", (unsigned)iface, e->type, (double)conv.f);
+        union { uint32_t u; float f; } conv;
+        conv.u = u;
+        TLV_LOG("[RX][IF%u] F32  type=0x%02X val=%f\n", (unsigned)iface, e->type, (double)conv.f);
         return true;
     }
     return false;
 }
 static bool on_string_tlv(const tlv_entry_t *e, tlv_interface_t iface) {
-    printf("[RX][IF%u] STR  type=0x%02X len=%u: ", (unsigned)iface, e->type, e->length);
+    TLV_LOG("[RX][IF%u] STR  type=0x%02X len=%u: ", (unsigned)iface, e->type, e->length);
+#if TLV_DEBUG_ENABLE
     for (uint8_t i = 0; i < e->length; i++) putchar((int)e->value[i]);
     putchar('\n');
+#endif
     return true;
 }
 static bool on_scaled_tlv(const tlv_entry_t *e, tlv_interface_t iface) {
     float val = TLV_ExtractFloatValue(e);
-    printf("[RX][IF%u] SCAL type=0x%02X val=%f\n", (unsigned)iface, e->type, (double)val);
+    TLV_LOG("[RX][IF%u] SCAL type=0x%02X val=%f\n", (unsigned)iface, e->type, (double)val);
     return true;
 }
 static bool on_cmd_ping(uint8_t cmd, tlv_interface_t iface) {
-    printf("[RX][IF%u] CMD  0x%02X\n", (unsigned)iface, cmd);
+    TLV_LOG("[RX][IF%u] CMD  0x%02X\n", (unsigned)iface, cmd);
     return true;
 }
 
 /* 演示帧 */
 static void send_demo_frames(void) {
+    // 先发送nack
+    tlv_entry_t nack_entry;
+    TLV_CreateControlCmdEntry(0xFF, &nack_entry); // NACK command
+    uint8_t nack_frame_id = Transport_NextFrameId();
+    Transport_SendTLVs(TLV_INTERFACE_UART, nack_frame_id, &nack_entry,1);
+
     tlv_entry_t entries[6];
     TLV_CreateInt32Entry(0x40, 123456789, &entries[0]);
     const char *msg = "HELLO";
@@ -99,10 +123,10 @@ static void send_voltage_once(float v) {
 }
 
 static void on_ack(uint8_t orig_id, tlv_interface_t iface) {
-    printf("[ACK] for frame 0x%02X on IF%u\n", orig_id, (unsigned)iface);
+    TLV_LOG("[ACK] for frame 0x%02X on IF%u\n", orig_id, (unsigned)iface);
 }
 static void on_nack(uint8_t orig_id, tlv_interface_t iface) {
-    printf("[NACK] for frame 0x%02X on IF%u\n", orig_id, (unsigned)iface);
+    TLV_LOG("[NACK] for frame 0x%02X on IF%u\n", orig_id, (unsigned)iface);
 }
 
 static DWORD WINAPI SenderThread(LPVOID lp) {
@@ -151,7 +175,25 @@ static DWORD WINAPI SenderThread(LPVOID lp) {
     return 0;
 }
 
-/* 持续接收与解析 */
+/* 持续接收与解析（可作为线程体运行） */
+static DWORD WINAPI ReceiverThread(LPVOID lp) {
+    (void)lp;
+    uint8_t buf[256];
+    tlv_parser_t *parser = FloatReceive_GetUARTParser();
+    while (g_running) {
+        ssize_t n = serial_read(g_serial, buf, sizeof(buf), 50); // 50ms 轮询
+        if (n > 0) {
+            for (ssize_t i = 0; i < n; ++i) {
+                TLV_ProcessByte(parser, buf[i]);
+            }
+        } else {
+            Sleep(1); // 空闲减负
+        }
+    }
+    return 0;
+}
+
+/* 兼容旧实现：若未启用线程则在当前线程中阻塞式接收 */
 static void receive_loop(void) {
     uint8_t buf[256];
     tlv_parser_t *parser = FloatReceive_GetUARTParser();
@@ -172,7 +214,7 @@ int main(void) {
 
     g_serial = serial_open("COM4", 115200);
     if (!g_serial) {
-        printf("[WARN] COM4 打开失败, dry 模式.\n");
+        TLV_LOG("[WARN] COM4 打开失败, dry 模式.\n");
     }
 
     Transport_RegisterSender(TLV_INTERFACE_UART, uart_send_impl);
@@ -186,7 +228,7 @@ int main(void) {
     FloatReceive_RegisterTLVHandler(INFO_IBUS, on_scaled_tlv);
     FloatReceive_RegisterTLVHandler(INFO_PBUS, on_scaled_tlv);
     FloatReceive_RegisterTLVHandler(SENSOR_TEMP, on_scaled_tlv);
-    FloatReceive_RegisterCmdHandler(0x01, on_cmd_ping);
+    FloatReceive_RegisterCmdHandler(0x41, on_cmd_ping);
     FloatReceive_RegisterAckHandler(on_ack);
     FloatReceive_RegisterNackHandler(on_nack);
 
@@ -197,8 +239,18 @@ int main(void) {
     g_sender_thread = CreateThread(NULL, 0, SenderThread, NULL, 0, NULL);
 #endif
 
+#if ENABLE_RX_THREAD
+    if (g_serial) {
+        g_receiver_thread = CreateThread(NULL, 0, ReceiverThread, NULL, 0, NULL);
+    }
+    /* 主线程可以做其它工作/长延时，不会阻塞解析 */
+    while (g_running) {
+        Sleep(100);
+    }
+#else
     if (g_serial) receive_loop();
     else while (g_running) Sleep(100);
+#endif
 
     g_running = false;
 
@@ -206,6 +258,12 @@ int main(void) {
     if (g_sender_thread) {
         WaitForSingleObject(g_sender_thread, 2000);
         CloseHandle(g_sender_thread);
+    }
+#endif
+#if ENABLE_RX_THREAD
+    if (g_receiver_thread) {
+        WaitForSingleObject(g_receiver_thread, 2000);
+        CloseHandle(g_receiver_thread);
     }
 #endif
     if (g_serial) serial_close(g_serial);
