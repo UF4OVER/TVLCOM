@@ -82,7 +82,6 @@ Transport_SendTLVs(TLV_INTERFACE_UART, frame_id, tlvs, 2);
 
 注意：`TLV_ParseData` 解析出的 `tlv_entry_t.value` 指向解析器内部缓存，不要跨回调保存；若需长期保存请自行拷贝。
 
-
 ## 3. API 速览
 
 核心计算
