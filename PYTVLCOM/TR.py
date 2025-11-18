@@ -9,3 +9,15 @@
 #  @Contact : 
 #  @Python  : 
 # -------------------------------
+class Transport:
+    def __init__(self):
+        pass
+
+    def send(self, data: bytes) -> int:
+        pass
+
+    def feed(self, size: int = 1) -> bytes:
+        pass
+
+    def close(self):
+        pass
