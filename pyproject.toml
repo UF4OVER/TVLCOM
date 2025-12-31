@@ -1,9 +1,20 @@
 [project]
 name = "tvlcom"
 version = "0.1.0"
-description = "Add your description here"
+description = "TVLCOM: a lightweight TLV-based communication framing library"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "pyserial"
+    "pyserial",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
