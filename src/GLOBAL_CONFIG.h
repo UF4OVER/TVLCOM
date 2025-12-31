@@ -38,7 +38,18 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-#define TLV_DEBUG_ENABLE 0  /* 1: enable protocol debug prints; 0: disable */
+/*
+ * Protocol debug switch.
+ *
+ * IMPORTANT:
+ * - Keep a single definition of TLV_DEBUG_ENABLE in the whole project.
+ * - Allow overriding from the build system via compiler define (-DTLV_DEBUG_ENABLE=0/1).
+ * - Duplicated defines in this header can lead to inconsistent logging across modules.
+ */
+#ifndef TLV_DEBUG_ENABLE
+#define TLV_DEBUG_ENABLE 1  /* 1: enable protocol debug prints; 0: disable */
+#endif
+
     /* Info IDs */
 #define INFO_VBUS   0xA1
 #define INFO_IBUS   0xA3
@@ -83,7 +94,7 @@ extern "C" {
 
 /* Private defines -----------------------------------------------------------*/
 /* USER CODE BEGIN Private defines */
-#define TLV_DEBUG_ENABLE 0  /* 1: enable protocol debug prints; 0: disable */
+/* (intentionally left empty; TLV_DEBUG_ENABLE is defined once above) */
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
