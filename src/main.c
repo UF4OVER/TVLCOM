@@ -12,6 +12,8 @@
 #include "S_TLV_PROTOCOL.h"
 
 #include "GLOBAL_CONFIG.h"
+#include "HAL/hal.h"
+#include "HAL/windows/hal_windows.h"
 
 #ifndef TLV_DEBUG_ENABLE
 #define TLV_DEBUG_ENABLE 0
@@ -19,7 +21,7 @@
 #if TLV_DEBUG_ENABLE
 #define TLV_LOG(...) do { printf(__VA_ARGS__); } while(0)
 #else
-#define TLV_LOG(...) do { } while(0)
+#define TLV_LOG(...) do { (void)0; } while(0)
 #endif
 // -------------------------------------------------------------
 
@@ -211,6 +213,9 @@ static void receive_loop(void) {
 
 int main(void) {
     SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
+
+    /* Install platform HAL (enables optional mutex/time utilities in protocol layers). */
+    TVL_HAL_Set(TVL_HAL_Windows());
 
     g_serial = serial_open("COM4", 115200);
     if (!g_serial) {

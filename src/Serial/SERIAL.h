@@ -2,14 +2,19 @@
 /**
   ******************************************************************************
   * @file           : SERIAL.h
-  * @brief          : 
+  * @brief          : Cross-platform serial port abstraction (Windows/POSIX).
   * @author         : UF4OVER
-  * @date           : 2025/11/14
+  * @date           : 2025-12-31
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 UF4.
-  * All rights reserved.
+  * This module provides a tiny serial API:
+  *   - serial_open/serial_close
+  *   - serial_read with timeout
+  *   - serial_write
+  *
+  * It is used by the PC demo (src/main.c). On MCU targets you typically won't
+  * use this module; instead, register a sender to Transport layer.
   *
   ******************************************************************************
   */
@@ -56,18 +61,47 @@ typedef struct serial_t serial_t;
 /* Exported functions prototypes ---------------------------------------------*/
 /* USER CODE BEGIN EFP */
 
-  /* 打开串口：portname 例如 Windows 上 `COM3` 或 `\\\\.\\COM10`，POSIX 上 `/dev/ttyS0` 或 `/dev/ttyUSB0` */
-  /* baud 如 115200。成功返回 serial_t*，失败返回 NULL。 */
-  serial_t *serial_open(const char *portname, unsigned int baud);
+/**
+ * @brief Open a serial port.
+ *
+ * Windows examples:
+ * - "COM3"
+ * - "\\\\.\\COM10"
+ *
+ * POSIX examples:
+ * - "/dev/ttyS0"
+ * - "/dev/ttyUSB0"
+ *
+ * @param portname Port name string.
+ * @param baud     Baudrate, e.g. 115200.
+ * @return serial_t* on success, NULL on failure.
+ */
+serial_t *serial_open(const char *portname, unsigned int baud);
 
-  /* 写入，返回写入字节数，出错返回 -1 */
-  ssize_t serial_write(serial_t *s, const void *buf, size_t len);
+/**
+ * @brief Write bytes to the serial port.
+ * @param s   Serial handle.
+ * @param buf Data buffer.
+ * @param len Number of bytes.
+ * @return Bytes written, or -1 on error.
+ */
+ssize_t serial_write(serial_t *s, const void *buf, size_t len);
 
-  /* 读取，timeout_ms 为超时时间（毫秒）。返回读到的字节数；超时返回 0；出错返回 -1 */
-  ssize_t serial_read(serial_t *s, void *buf, size_t len, unsigned int timeout_ms);
+/**
+ * @brief Read bytes from the serial port.
+ * @param s          Serial handle.
+ * @param buf        Output buffer.
+ * @param len        Max bytes to read.
+ * @param timeout_ms Timeout in milliseconds. 0 means "block" on some platforms.
+ * @return >0 bytes read, 0 on timeout, -1 on error.
+ */
+ssize_t serial_read(serial_t *s, void *buf, size_t len, unsigned int timeout_ms);
 
-  /* 关闭串口并释放结构 */
-  void serial_close(serial_t *s);
+/**
+ * @brief Close a serial port and free internal resources.
+ * @param s Serial handle.
+ */
+void serial_close(serial_t *s);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

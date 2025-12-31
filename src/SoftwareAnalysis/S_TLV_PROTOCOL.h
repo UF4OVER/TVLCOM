@@ -2,14 +2,32 @@
 /**
  ******************************************************************************
  * @file           : S_TLV_PROTOCOL.h
- * @brief          :
+ * @brief          : TLV framing/building/parsing + CRC16.
  * @author         : UF4OVER
- * @date           : 2025/10/30
+ * @date           : 2025-12-31
  ******************************************************************************
  * @attention
  *
- * Copyright (c) 2025 UF4.
- * All rights reserved.
+ * TVLCOM frame format (byte stream):
+ *   [Header 2B: 0xF0 0x0F]
+ *   [FrameID 1B]
+ *   [DataLen 1B]          // length of TLV data segment
+ *   [Data: TLV1+TLV2+...] // each TLV: [Type 1B][Len 1B][Value N]
+ *   [CRC16 2B]            // CRC16-CCITT over (FrameID + DataLen + Data)
+ *   [Tail 2B: 0xE0 0x0D]
+ *
+ * Endianness rules:
+ * - CRC field is stored big-endian (high byte first).
+ * - Integer payload helpers (e.g. TLV_CreateInt32Entry/TLV_ExtractInt32Value) are little-endian.
+ *   If your peer uses a different byte order, define a project-wide rule and adjust helpers.
+ *
+ * Lifetime / ownership:
+ * - TLV_ParseData() sets tlv_entry_t.value pointers that reference the caller-provided data buffer.
+ * - In FloatReceive_FrameCallback(), these pointers reference the parser's internal buffer and are
+ *   only valid during the callback. Copy out if you need to keep the data.
+ *
+ * Thread-safety:
+ * - Parser instances (tlv_parser_t) are NOT thread-safe by default. Feed bytes from one context.
  *
  ******************************************************************************
  */
@@ -24,6 +42,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include <stdbool.h>
+#include <stddef.h>
 #include "stdint.h"
 /* USER CODE BEGIN Includes */
 
@@ -128,73 +147,126 @@ typedef struct {
 /* USER CODE BEGIN EFP */
 
 /**
- * @brief Calculate CRC16-CCITT
- * @param data Pointer to data buffer
- * @param length Length of data
- * @return CRC16 value
+ * @brief Calculate CRC16-CCITT.
+ *
+ * Polynomial: 0x1021
+ * Initial value: 0xFFFF
+ *
+ * @param data   Pointer to input bytes.
+ * @param length Number of bytes.
+ * @return CRC16 value.
  */
 uint16_t TLV_CalculateCRC16(const uint8_t *data, uint16_t length);
 
 /**
- * @brief Initialize TLV parser
- * @param parser Pointer to parser structure
- * @param interface Which interface this parser reads from
- * @param callback Callback function for received frames
+ * @brief Initialize a TLV parser instance.
+ *
+ * @param parser    Parser object to initialize.
+ * @param interface Which interface this parser belongs to (UART/USB).
+ * @param callback  Called when a full valid frame is decoded.
+ * @note The parser keeps an internal receive buffer of size TLV_MAX_DATA_LENGTH.
  */
 void TLV_InitParser(tlv_parser_t *parser,
                     tlv_interface_t interface,
                     tlv_frame_callback_t callback);
 
 /**
- * @brief Set error callback for parser
+ * @brief Set error callback for a parser.
+ *
+ * @param parser Parser instance.
+ * @param err_cb Called on length/CRC errors.
  */
 void TLV_SetErrorCallback(tlv_parser_t *parser, tlv_error_callback_t err_cb);
 
 /**
- * @brief Process a single byte through the parser
- * @param parser Pointer to parser structure
- * @param byte Received byte
+ * @brief Feed one byte into the TLV parser state machine.
+ *
+ * Usage:
+ * - Call this for each received byte (from UART RX ISR, DMA buffer walker, or PC read loop).
+ * - On successful frame decode, the parser invokes the frame_callback.
+ *
+ * Error handling:
+ * - On length overflow or CRC mismatch, the parser resets to header hunt state and (if set)
+ *   invokes error_callback(frame_id, interface, error).
+ *
+ * @param parser Parser instance.
+ * @param byte   Received byte.
  */
 void TLV_ProcessByte(tlv_parser_t *parser, uint8_t byte);
 
 /**
- * @brief Build a TLV frame with multiple TLV entries
- * @param frame_id Frame ID for matching ACK
- * @param tlv_entries Array of TLV entries
- * @param tlv_count Number of TLV entries
- * @param output_buffer Output buffer for frame
- * @param output_size Pointer to store output frame size
- * @return true if successful, false if buffer overflow
+ * @brief Build a TLV frame from a list of TLV entries.
+ *
+ * @param frame_id       Frame ID chosen by sender (typically Transport_NextFrameId()).
+ * @param tlv_entries    Array of TLV entries.
+ * @param tlv_count      Number of entries in tlv_entries.
+ * @param output_buffer  Output frame buffer.
+ * @param output_size    Output frame size (bytes).
+ *
+ * @return true on success; false if the total TLV data length exceeds TLV_MAX_DATA_LENGTH.
  */
 bool TLV_BuildFrame(uint8_t frame_id, const tlv_entry_t *tlv_entries, uint8_t tlv_count,
                     uint8_t *output_buffer, uint16_t *output_size);
 
 /**
- * @brief Build an ACK frame
- * @param frame_id Frame ID to acknowledge
- * @param output_buffer Output buffer for ACK frame
- * @param output_size Pointer to store output frame size
+ * @brief Build an ACK frame.
+ *
+ * Payload: a single byte holding the original frame id.
+ *
+ * @param frame_id      Original frame ID to acknowledge.
+ * @param output_buffer Output buffer.
+ * @param output_size   Output size.
  */
 void TLV_BuildAckFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *output_size);
 
 /**
- * @brief Build a NACK frame
- * @param frame_id Frame ID to negative acknowledge
- * @param output_buffer Output buffer for NACK frame
- * @param output_size Pointer to store output frame size
+ * @brief Build a NACK frame.
+ *
+ * Payload: a single byte holding the original frame id.
+ *
+ * @param frame_id      Original frame ID to NACK.
+ * @param output_buffer Output buffer.
+ * @param output_size   Output size.
  */
 void TLV_BuildNackFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *output_size);
 
 /**
- * @brief Parse TLV data segment into individual TLV entries
- * @param data_buffer TLV data segment
- * @param data_length Length of data segment
- * @param tlv_entries Output array for parsed TLV entries
- * @param max_entries Maximum number of entries to parse
- * @return Number of TLV entries parsed
+ * @brief Parse a TLV data segment into TLV entries.
+ *
+ * This parses only the TLV data segment (the bytes between DataLen and CRC), not the whole frame.
+ *
+ * @param data_buffer TLV data segment.
+ * @param data_length Length of data segment.
+ * @param tlv_entries Output array for parsed entries.
+ * @param max_entries Capacity of tlv_entries.
+ * @return Parsed entry count (0..max_entries).
  */
 uint8_t TLV_ParseData(const uint8_t *data_buffer, uint8_t data_length,
                       tlv_entry_t *tlv_entries, uint8_t max_entries);
+
+/**
+ * @brief Create a control command TLV entry (TLV_TYPE_CONTROL_CMD).
+ * @param command Control command byte.
+ * @param entry   Output TLV entry.
+ */
+void TLV_CreateControlCmdEntry(uint8_t command, tlv_entry_t *entry);
+
+/**
+ * @brief Extract a scaled float value from a 4-byte TLV payload.
+ *
+ * The protocol uses an int32 scaled by 10000 (x10000).
+ *
+ * @param entry TLV entry.
+ * @return value/10000.0f, or 0.0f if entry is invalid.
+ */
+float TLV_ExtractFloatValue(const tlv_entry_t *entry);
+
+/**
+ * @brief Extract int32 value from TLV payload (little-endian 4 bytes).
+ * @param entry TLV entry.
+ * @return int32 value, or 0 if entry is invalid.
+ */
+int32_t TLV_ExtractInt32Value(const tlv_entry_t *entry);
 
 /* Convenience creators */
 
@@ -216,6 +288,7 @@ static inline void TLV_CreateInt32Entry(uint8_t type, int32_t value, tlv_entry_t
     entry->inline_storage[3] = (uint8_t)(value & 0xFF);
     entry->value = entry->inline_storage;
 }
+
 /** Create a float32 TLV entry (IEEE-754 binary32, little-endian). */
 static inline void TLV_CreateFloat32Entry(uint8_t type, float fvalue, tlv_entry_t *entry)
 {
@@ -223,8 +296,6 @@ static inline void TLV_CreateFloat32Entry(uint8_t type, float fvalue, tlv_entry_
     TLV_CreateInt32Entry(type, (int32_t)u.u, entry);
 }
 
-/** Create a control command TLV entry (1 byte). */
-void TLV_CreateControlCmdEntry(uint8_t command, tlv_entry_t *entry);
 
 /** Create a UTF-8 string TLV entry (copies up to 255 bytes). */
 static inline void TLV_CreateStringEntry(const char *str, tlv_entry_t *entry)

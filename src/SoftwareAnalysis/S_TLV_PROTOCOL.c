@@ -1,14 +1,13 @@
 /**
  ******************************************************************************
  * @file           : S_TLV_PROTOCOL.c
- * @brief          :
+ * @brief          : TLV frame building/parsing implementation (state machine + CRC16).
  * @author         : UF4OVER
- * @date           : 2025/10/30
+ * @date           : 2025-12-31
  ******************************************************************************
  * @attention
  *
- * Copyright (c) 2025 UF4.
- * All rights reserved.
+ * See S_TLV_PROTOCOL.h for protocol format and rules.
  *
  ******************************************************************************
  */
@@ -59,7 +58,10 @@
 /* USER CODE BEGIN 0 */
 
 /**
- * @brief Calculate CRC16-CCITT (polynomial 0x1021, initial value 0xFFFF)
+ * @brief Calculate CRC16-CCITT (polynomial 0x1021, initial value 0xFFFF).
+ * @param data   Input bytes.
+ * @param length Number of bytes.
+ * @return CRC16.
  */
 uint16_t TLV_CalculateCRC16(const uint8_t *data, uint16_t length)
 {
@@ -80,7 +82,10 @@ uint16_t TLV_CalculateCRC16(const uint8_t *data, uint16_t length)
 }
 
 /**
- * @brief Initialize TLV parser
+ * @brief Initialize TLV parser.
+ * @param parser    Parser instance.
+ * @param interface Parser bound interface.
+ * @param callback  Frame callback.
  */
 void TLV_InitParser(tlv_parser_t *parser,
                     tlv_interface_t interface,
@@ -100,10 +105,16 @@ void TLV_SetErrorCallback(tlv_parser_t *parser, tlv_error_callback_t err_cb)
 }
 
 /**
- * @brief Process a single byte through the parser state machine
+ * @brief Process a single byte through the parser state machine.
+ *
+ * State machine overview:
+ * - Hunt header 0xF0 0x0F
+ * - Read FrameID, DataLen
+ * - Read DataLen bytes of data
+ * - Read CRC16 (big-endian)
+ * - Verify tail 0xE0 0x0D
+ * - Verify CRC; on success call frame_callback
  */
-// c
-// 修改文件: `src/SoftwareAnalysis/S_TLV_PROTOCOL.c` 里的 TLV_ProcessByte
 void TLV_ProcessByte(tlv_parser_t *parser, uint8_t byte)
 {
     switch (parser->state) {
@@ -201,7 +212,8 @@ void TLV_ProcessByte(tlv_parser_t *parser, uint8_t byte)
 }
 
 /**
- * @brief Build a TLV frame with multiple TLV entries
+ * @brief Build a TLV frame with multiple TLV entries.
+ * @return true on success; false on overflow.
  */
 bool TLV_BuildFrame(uint8_t frame_id, const tlv_entry_t *tlv_entries, uint8_t tlv_count,
                     uint8_t *output_buffer, uint16_t *output_size)
@@ -255,7 +267,8 @@ bool TLV_BuildFrame(uint8_t frame_id, const tlv_entry_t *tlv_entries, uint8_t tl
 }
 
 /**
- * @brief Build an ACK frame
+ * @brief Build an ACK frame.
+ * @note ACK payload is 1 byte: original frame id.
  */
 void TLV_BuildAckFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *output_size)
 {
@@ -268,7 +281,8 @@ void TLV_BuildAckFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *outpu
 }
 
 /**
- * @brief Build a NACK frame
+ * @brief Build a NACK frame.
+ * @note NACK payload is 1 byte: original frame id.
  */
 void TLV_BuildNackFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *output_size)
 {
@@ -281,7 +295,8 @@ void TLV_BuildNackFrame(uint8_t frame_id, uint8_t *output_buffer, uint16_t *outp
 }
 
 /**
- * @brief Parse TLV data segment into individual TLV entries
+ * @brief Parse TLV data segment into individual TLV entries.
+ * @note Value pointers reference the input data_buffer.
  */
 uint8_t TLV_ParseData(const uint8_t *data_buffer, uint8_t data_length,
                       tlv_entry_t *tlv_entries, uint8_t max_entries)
@@ -316,7 +331,7 @@ uint8_t TLV_ParseData(const uint8_t *data_buffer, uint8_t data_length,
 }
 
 /**
- * @brief Create a control command TLV entry
+ * @brief Create a control command TLV entry.
  */
 void TLV_CreateControlCmdEntry(uint8_t command, tlv_entry_t *entry)
 {
@@ -327,7 +342,7 @@ void TLV_CreateControlCmdEntry(uint8_t command, tlv_entry_t *entry)
 }
 
 /**
- * @brief Extract float value from int32 TLV (scaled ×10000)
+ * @brief Extract float value from scaled int32 TLV (scaled ×10000).
  */
 float TLV_ExtractFloatValue(const tlv_entry_t *entry)
 {
@@ -344,7 +359,7 @@ float TLV_ExtractFloatValue(const tlv_entry_t *entry)
 }
 
 /**
- * @brief Extract int32 value from TLV
+ * @brief Extract int32 value from TLV.
  */
 int32_t TLV_ExtractInt32Value(const tlv_entry_t *entry)
 {

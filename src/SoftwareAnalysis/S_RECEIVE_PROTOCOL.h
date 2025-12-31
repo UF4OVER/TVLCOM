@@ -2,22 +2,26 @@
 /**
  ******************************************************************************
  * @file           : S_RECEIVE_PROTOCOL.h
- * @brief          :
+ * @brief          : Receive-side TLV frame dispatch + ACK/NACK policy.
  * @author         : UF4OVER
- * @date           : 2025/10/30
+ * @date           : 2025-12-31
  ******************************************************************************
  * @attention
  *
- * Frame Structure:
- * [Frame Header 2B: 0xF0 0x0F]
- * [Frame ID 1B]
- * [Data Length 1B]
- * [Data Segment N bytes: TLV1 + TLV2 + ...]
- * [CRC16 2B]
- * [Frame Tail 2B: 0xE0 0x0D]
+ * Responsibilities:
+ * - Owns TLV parsers (UART/USB) and wires parser->frame_callback.
+ * - Parses TLV data segment into entries.
+ * - Dispatches TLVs to registered type handlers / control cmd handlers.
+ * - Applies ACK/NACK policy:
+ *   - If all non-ACK/NACK TLVs are handled successfully => send ACK for received frame_id.
+ *   - Otherwise => send NACK.
+ *   - If the received frame contains only ACK/NACK TLVs, it will NOT respond (prevents storms).
  *
- * Copyright (c) 2025 UF4.
- * All rights reserved.
+ * Lifetime rules:
+ * - tlv_entry_t.value points into an internal parser buffer; copy out if you need persistence.
+ *
+ * Thread-safety:
+ * - This module uses optional HAL mutex to protect handler tables when available.
  *
  ******************************************************************************
  */
@@ -72,67 +76,86 @@ typedef tlv_interface_t comm_interface_t;
 /* USER CODE BEGIN EFP */
 
 /**
- * @brief Initialize TLV receiver for a specific interface
- * @param interface Communication interface (UART or USB)
+ * @brief Initialize receiver/parsers for a given interface.
+ *
+ * @param interface Communication interface (UART or USB).
  */
 void FloatReceive_Init(tlv_interface_t interface);
 
 /**
- * @brief Get TLV parser for UART interface
- * @return Pointer to UART TLV parser
+ * @brief Get the parser instance bound to UART interface.
+ * @return Parser pointer (singleton storage).
  */
 tlv_parser_t* FloatReceive_GetUARTParser(void);
 
 /**
- * @brief Get TLV parser for USB interface
+ * @brief Get the parser instance bound to USB interface.
+ * @return Parser pointer (singleton storage).
  */
 tlv_parser_t* FloatReceive_GetUSBParser(void);
 
 /**
- * @brief Send ACK frame
- * @param frame_id Frame ID to acknowledge
- * @param interface Communication interface
+ * @brief Send ACK for a received frame.
+ * @param frame_id  Received frame id to acknowledge.
+ * @param interface Interface to send via.
  */
 void FloatReceive_SendAck(uint8_t frame_id, tlv_interface_t interface);
 
 /**
- * @brief Send NACK frame
- * @param frame_id Frame ID to negative acknowledge
- * @param interface Communication interface
+ * @brief Send NACK for a received frame.
+ * @param frame_id  Received frame id to negative-ack.
+ * @param interface Interface to send via.
  */
 void FloatReceive_SendNack(uint8_t frame_id, tlv_interface_t interface);
 
 /**
- * @brief TLV frame callback - called when a valid frame is received
- * @param frame_id Frame ID
- * @param data Pointer to TLV data segment
- * @param length Length of data segment
- * @param interface Communication interface
+ * @brief TLV frame callback (wired into TLV parser).
+ *
+ * @param frame_id  Received frame id.
+ * @param data      Pointer to TLV data segment.
+ * @param length    Length of TLV data segment.
+ * @param interface Interface this frame came from.
  */
 void FloatReceive_FrameCallback(uint8_t frame_id, const uint8_t *data, uint8_t length, tlv_interface_t interface);
 
 /**
- * @brief Parser error callback - send NACK on error
+ * @brief Parser error callback.
+ *
+ * Default behavior: immediately sends a NACK for the frame.
+ *
+ * @param frame_id  Current parser frame id (best-effort; may be partial).
+ * @param interface Parser interface.
+ * @param error     Error type.
  */
 void FloatReceive_ErrorCallback(uint8_t frame_id, tlv_interface_t interface, tlv_error_t error);
 
 /**
- * @brief Register a handler for a specific TLV type (custom data)
+ * @brief Register a TLV type handler.
+ *
+ * Handler contract:
+ * - Return true if TLV is handled successfully.
+ * - Return false if TLV is unknown or failed (will trigger NACK for the frame).
  */
 void FloatReceive_RegisterTLVHandler(uint8_t type, tlv_type_handler_t handler);
 
 /**
- * @brief Register a handler for a specific control command (value inside TLV_TYPE_CONTROL_CMD)
+ * @brief Register a control command handler.
+ *
+ * Control commands are carried inside TLV_TYPE_CONTROL_CMD where value[0] is command id.
  */
 void FloatReceive_RegisterCmdHandler(uint8_t command, cmd_handler_t handler);
 
 /**
- * @brief Register a handler for ACK notification
+ * @brief Register ACK notification handler.
+ *
+ * When a received frame contains only ACK TLV(s), this handler is notified with original frame id.
  */
 void FloatReceive_RegisterAckHandler(ack_notify_t handler);
 
 /**
- * @brief Register a handler for NACK notification
+ * @brief Register NACK notification handler.
+ *
+ * When a received frame contains only NACK TLV(s), this handler is notified with original frame id.
  */
 void FloatReceive_RegisterNackHandler(ack_notify_t handler);
 

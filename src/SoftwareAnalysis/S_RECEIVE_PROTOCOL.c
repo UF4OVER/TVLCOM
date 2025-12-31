@@ -1,15 +1,13 @@
 /**
  ******************************************************************************
  * @file           : S_RECEIVE_PROTOCOL.c
- * @brief          :
+ * @brief          : Receive-side TLV dispatch implementation (handlers + ACK/NACK).
  * @author         : UF4OVER
- * @date           : 2025/10/30
+ * @date           : 2025-12-31
  ******************************************************************************
  * @attention
  *
- *
- * Copyright (c) 2025 UF4.
- * All rights reserved.
+ * See S_RECEIVE_PROTOCOL.h for policy and callback contracts.
  *
  ******************************************************************************
  */
@@ -21,6 +19,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include "S_TRANSPORT_PROTOCOL.h"
+#include "HAL/hal.h"
 /* USER CODE END Includes */
 
 /* Forward declarations for local use */
@@ -61,6 +60,9 @@ static uint8_t cmd_handler_count = 0;
 static ack_notify_t s_ack_handler = NULL;
 static ack_notify_t s_nack_handler = NULL;
 
+/* Optional lock to protect handler registry in multi-thread / ISR contexts */
+static tvl_hal_mutex_t s_receive_lock = NULL;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,6 +79,11 @@ static bool dispatch_tlv_entries(uint8_t frame_id, tlv_entry_t *entries, uint8_t
  */
 void FloatReceive_Init(tlv_interface_t interface)
 {
+    const tvl_hal_vtable_t *hal = TVL_HAL_Get();
+    if (!s_receive_lock && hal && hal->mutex_create) {
+        s_receive_lock = hal->mutex_create();
+    }
+
     if (interface == TLV_INTERFACE_UART) {
         TLV_InitParser(&uart_parser, TLV_INTERFACE_UART, FloatReceive_FrameCallback);
         TLV_SetErrorCallback(&uart_parser, FloatReceive_ErrorCallback);
@@ -127,6 +134,19 @@ void FloatReceive_SendNack(uint8_t frame_id, tlv_interface_t interface)
 }
 
 /**
+ * @brief Parser error callback.
+ *
+ * Current policy: any parser error results in immediate NACK.
+ * The 'error' parameter can be used for diagnostics/logging.
+ */
+void FloatReceive_ErrorCallback(uint8_t frame_id, tlv_interface_t interface, tlv_error_t error)
+{
+    (void)error;
+    /* On parser error, immediately NACK */
+    FloatReceive_SendNack(frame_id, interface);
+}
+
+/**
  * @brief TLV帧回调——接收到有效帧时调用
  */
 void FloatReceive_FrameCallback(uint8_t frame_id, const uint8_t *data, uint8_t length, tlv_interface_t interface)
@@ -168,18 +188,16 @@ void FloatReceive_FrameCallback(uint8_t frame_id, const uint8_t *data, uint8_t l
     }
 }
 
-void FloatReceive_ErrorCallback(uint8_t frame_id, tlv_interface_t interface, tlv_error_t error)
-{
-    /* On parser error, immediately NACK */
-    FloatReceive_SendNack(frame_id, interface);
-}
-
 void FloatReceive_RegisterTLVHandler(uint8_t type, tlv_type_handler_t handler)
 {
+    const tvl_hal_vtable_t *hal = TVL_HAL_Get();
+    if (s_receive_lock && hal && hal->mutex_lock) hal->mutex_lock(s_receive_lock);
+
     uint8_t i;
     for (i = 0; i < tlv_type_handler_count; i++) {
         if (tlv_type_ids[i] == type) {
             tlv_type_handlers[i] = handler;
+            if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
             return;
         }
     }
@@ -188,14 +206,20 @@ void FloatReceive_RegisterTLVHandler(uint8_t type, tlv_type_handler_t handler)
         tlv_type_handlers[tlv_type_handler_count] = handler;
         tlv_type_handler_count = (uint8_t)(tlv_type_handler_count + 1);
     }
+
+    if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
 }
 
 void FloatReceive_RegisterCmdHandler(uint8_t command, cmd_handler_t handler)
 {
+    const tvl_hal_vtable_t *hal = TVL_HAL_Get();
+    if (s_receive_lock && hal && hal->mutex_lock) hal->mutex_lock(s_receive_lock);
+
     uint8_t i;
     for (i = 0; i < cmd_handler_count; i++) {
         if (cmd_ids[i] == command) {
             cmd_handlers[i] = handler;
+            if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
             return;
         }
     }
@@ -204,34 +228,54 @@ void FloatReceive_RegisterCmdHandler(uint8_t command, cmd_handler_t handler)
         cmd_handlers[cmd_handler_count] = handler;
         cmd_handler_count = (uint8_t)(cmd_handler_count + 1);
     }
+
+    if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
 }
 
 void FloatReceive_RegisterAckHandler(ack_notify_t handler)
 {
+    const tvl_hal_vtable_t *hal = TVL_HAL_Get();
+    if (s_receive_lock && hal && hal->mutex_lock) hal->mutex_lock(s_receive_lock);
     s_ack_handler = handler;
+    if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
 }
 
 void FloatReceive_RegisterNackHandler(ack_notify_t handler)
 {
+    const tvl_hal_vtable_t *hal = TVL_HAL_Get();
+    if (s_receive_lock && hal && hal->mutex_lock) hal->mutex_lock(s_receive_lock);
     s_nack_handler = handler;
+    if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
 }
 
 static bool handle_control_cmd(const tlv_entry_t *entry, tlv_interface_t interface)
 {
     if (entry->length < 1 || entry->value == NULL) return false;
     uint8_t cmd = entry->value[0];
+
+    const tvl_hal_vtable_t *hal = TVL_HAL_Get();
+    if (s_receive_lock && hal && hal->mutex_lock) hal->mutex_lock(s_receive_lock);
+
     uint8_t i;
     for (i = 0; i < cmd_handler_count; i++) {
         if (cmd_ids[i] == cmd && cmd_handlers[i]) {
-            return cmd_handlers[i](cmd, interface);
+            cmd_handler_t fn = cmd_handlers[i];
+            if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
+            return fn(cmd, interface);
         }
     }
+
+    if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
     return false; /* no handler */
 }
 
 static bool dispatch_tlv_entries(uint8_t frame_id, tlv_entry_t *entries, uint8_t count, tlv_interface_t interface)
 {
+    (void)frame_id;
     bool all_ok = true;
+
+    const tvl_hal_vtable_t *hal = TVL_HAL_Get();
+
     uint8_t i;
     for (i = 0; i < count; i++) {
         const tlv_entry_t *e = &entries[i];
@@ -249,13 +293,20 @@ static bool dispatch_tlv_entries(uint8_t frame_id, tlv_entry_t *entries, uint8_t
 
         /* Try custom type handler first */
         bool handled = false;
+
+        if (s_receive_lock && hal && hal->mutex_lock) hal->mutex_lock(s_receive_lock);
         uint8_t j;
         for (j = 0; j < tlv_type_handler_count; j++) {
             if (tlv_type_ids[j] == e->type && tlv_type_handlers[j]) {
-                handled = tlv_type_handlers[j](e, interface);
-                break;
+                tlv_type_handler_t fn = tlv_type_handlers[j];
+                if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
+                handled = fn(e, interface);
+                goto done_one;
             }
         }
+        if (s_receive_lock && hal && hal->mutex_unlock) hal->mutex_unlock(s_receive_lock);
+
+done_one:
         if (!handled) {
             all_ok = false; /* unknown or failed */
         }

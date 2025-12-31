@@ -1,14 +1,15 @@
 /**
   ******************************************************************************
   * @file           : SERIAL.c
-  * @brief          : 
+  * @brief          : Cross-platform serial port implementation (Windows/POSIX backend).
   * @author         : UF4OVER
-  * @date           : 2025/11/14
+  * @date           : 2025-12-31
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 UF4.
-  * All rights reserved.
+  * Timeout behavior:
+  * - Windows: uses COMMTIMEOUTS; serial_read() returns 0 on timeout.
+  * - POSIX: uses select(); returns 0 on timeout.
   *
   ******************************************************************************
   */
@@ -104,6 +105,9 @@ struct serial_t {
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/**
+ * @brief Open and configure a serial port.
+ */
 serial_t *serial_open(const char *portname, unsigned int baud)
 {
     if (!portname) return NULL;
@@ -210,6 +214,9 @@ serial_t *serial_open(const char *portname, unsigned int baud)
     return s;
 }
 
+/**
+ * @brief Write a buffer to serial.
+ */
 ssize_t serial_write(serial_t *s, const void *buf, size_t len)
 {
     if (!s || !buf) return -1;
@@ -223,6 +230,9 @@ ssize_t serial_write(serial_t *s, const void *buf, size_t len)
 #endif
 }
 
+/**
+ * @brief Read from serial with a timeout.
+ */
 ssize_t serial_read(serial_t *s, void *buf, size_t len, unsigned int timeout_ms)
 {
     if (!s || !buf) return -1;
@@ -257,6 +267,9 @@ ssize_t serial_read(serial_t *s, void *buf, size_t len, unsigned int timeout_ms)
 #endif
 }
 
+/**
+ * @brief Close serial and free resources.
+ */
 void serial_close(serial_t *s)
 {
     if (!s) return;
