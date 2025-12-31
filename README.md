@@ -98,50 +98,34 @@ TLV 单元：`[Type 1B][Length 1B][Value N bytes]`
 
 ```mermaid
 flowchart TD
-    A[串口/USB 收到字节流] --> B[TLV_ProcessByte
-(按字节喂入解析器)]
-    B -->|帧未完成| B
-    B -->|帧完成且 CRC OK| C[FloatReceive_FrameCallback
-(拿到 frame_id + data)]
-    B -->|长度/CRC 错误| E[FloatReceive_ErrorCallback]
-
-    C --> D[TLV_ParseData
-解析出 entries[]]
-    D --> F{entries 是否全为
-ACK/NACK?}
-
-    F -->|是| G[通知 Ack/Nack handler
-(可选)]
-    G --> H[返回: 不回包
-防 ACK 风暴]
-
-    F -->|否| I[dispatch_tlv_entries
-分发到 type/cmd handler]
-    I --> J{全部处理成功?}
-    J -->|是| K[FloatReceive_SendAck
-回 ACK]
-    J -->|否| L[FloatReceive_SendNack
-回 NACK]
-
-    E --> L
+  A[串口/USB 收到字节流] --> B[TLV_ProcessByte<br>按字节喂入解析器]
+  B -->|帧未完成| B
+  B -->|帧完成且 CRC OK| C[FloatReceive_FrameCallback<br>拿到 frame_id + data]
+  B -->|长度/CRC 错误| E[FloatReceive_ErrorCallback]
+  C --> D[TLV_ParseData<br>解析出 entries 列表]
+  D --> F{entries 是否全为<br>ACK/NACK?}
+  F -->|是| G[通知 Ack/Nack handler<br>可选]
+  G --> H[返回: 不回包<br>防 ACK 风暴]
+  F -->|否| I[dispatch_tlv_entries<br>分发到 type/cmd handler]
+  I --> J{全部处理成功?}
+  J -->|是| K[FloatReceive_SendAck<br>回 ACK]
+  J -->|否| L[FloatReceive_SendNack<br>回 NACK]
+  E --> L
 ```
 
 ### 发送（TX）处理流程
 
 ```mermaid
 flowchart TD
-    A[上层准备 TLV entries[]] --> B[Transport_NextFrameId]
-    B --> C[Transport_SendTLVs]
-    C --> D[TLV_BuildFrame
-组帧+CRC]
-    D --> E{Build 成功?}
-    E -->|否| F[返回 false
-(长度超限等)]
-    E -->|是| G[Transport_Send]
-    G --> H{sender 已注册?}
-    H -->|否| I[返回 <0]
-    H -->|是| J[调用已注册 sender
-UART/USB 写出]
+  A[上层准备 TLV entries 列表] --> B[Transport_NextFrameId]
+  B --> C[Transport_SendTLVs]
+  C --> D[TLV_BuildFrame<br>组帧 + CRC]
+  D --> E{Build 成功?}
+  E -->|否| F[返回 false<br>长度超限等]
+  E -->|是| G[Transport_Send]
+  G --> H{sender 已注册?}
+  H -->|否| I[返回 小于 0]
+  H -->|是| J[调用已注册 sender<br>UART/USB 写出]
 ```
 
 ## 单元测试（不依赖真实串口）
@@ -160,6 +144,15 @@ cmake -S . -B cmake-build -G "MinGW Makefiles" -DTVLCOM_ENABLE_TESTS=ON -DTVLCOM
 cmake --build cmake-build
 ctest --test-dir cmake-build --output-on-failure
 ```
+
+## 文档（更详细）
+如果你想看更完整的协议细节、移植（MCU/HAL）与调试排错，请看 `docs/`：
+- 文档索引：[`docs/README.md`](./docs/README.md)
+- 协议详解：[`docs/PROTOCOL.md`](./docs/PROTOCOL.md)
+- 移植到 MCU（HAL 接入指南）：[`docs/PORTING.md`](./docs/PORTING.md)
+- 调试与问题定位：[`docs/DEBUGGING.md`](./docs/DEBUGGING.md)
+
+> 建议阅读顺序：协议详解 → 调试定位 → MCU 移植。
 
 ## 许可证
 请参考仓库根目录的 LICENSE；如未提供，默认保留所有权利。
