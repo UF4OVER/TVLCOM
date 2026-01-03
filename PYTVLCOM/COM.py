@@ -325,38 +325,38 @@ class Dispatcher:
     def RegisterTypeHandler(self, tlv_type: int, fn: Callable[[bytes], bool]) -> None:
         """Backward-compatible alias for :meth:`register_type_handler`."""
 
-        self.register_type_handler(tlv_type, fn)
+        self.registerTypeHandler(tlv_type, fn)
 
     def RegisterCmdHandler(self, cmd: int, fn: Callable[[], bool]) -> None:
         """Backward-compatible alias for :meth:`register_cmd_handler`."""
 
-        self.register_cmd_handler(cmd, fn)
+        self.registerCmdHandler(cmd, fn)
 
     # ---- preferred snake_case API ----
-    def register_type_handler(self, tlv_type: int, fn: Callable[[bytes], bool]) -> None:
+    def registerTypeHandler(self, tlv_type: int, fn: Callable[[bytes], bool]) -> None:
         """Register a handler for a TLV type."""
 
         self.type_handlers[int(tlv_type)] = fn
 
-    def register_cmd_handler(self, cmd: int, fn: Callable[[], bool]) -> None:
+    def registerCmdHandler(self, cmd: int, fn: Callable[[], bool]) -> None:
         """Register a handler for a control command."""
 
         self.cmd_handlers[int(cmd)] = fn
 
-    def type_handler(self, tlv_type: int):
+    def typeHandler(self, tlv_type: int):
         """Decorator variant of :meth:`register_type_handler`."""
 
         def decorator(fn: Callable[[bytes], bool]):
-            self.register_type_handler(tlv_type, fn)
+            self.registerTypeHandler(tlv_type, fn)
             return fn
 
         return decorator
 
-    def cmd_handler(self, cmd: int):
+    def cmdHandler(self, cmd: int):
         """Decorator variant of :meth:`register_cmd_handler`."""
 
         def decorator(fn: Callable[[], bool]):
-            self.register_cmd_handler(cmd, fn)
+            self.registerCmdHandler(cmd, fn)
             return fn
 
         return decorator

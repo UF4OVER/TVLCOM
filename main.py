@@ -137,32 +137,32 @@ def main() -> None:
         legacy_dict_entries=True,
     )
 
-    @dispatcher.type_handler(FrameDefine.TLV_TYPE_STRING)
+    @dispatcher.typeHandler(FrameDefine.TLV_TYPE_STRING)
     def on_string(v: bytes) -> bool:
         print("recv string:", v.decode("utf-8", errors="ignore"))
         return True
 
-    @dispatcher.cmd_handler(0x01)
+    @dispatcher.cmdHandler(0x01)
     def on_cmd_1() -> bool:
         print("cmd 1 received")
         return True
 
-    @dispatcher.cmd_handler(0x02)
+    @dispatcher.cmdHandler(0x02)
     def on_cmd_2() -> bool:
         print("cmd 2 received")
         return True
 
-    @dispatcher.type_handler(0x41)
+    @dispatcher.typeHandler(0x41)
     def on_type_41(v: bytes) -> bool:
         print("recv type 0x41:", v.hex())
         return True
 
-    @dispatcher.type_handler(0x50)
+    @dispatcher.typeHandler(0x50)
     def on_type_50(v: bytes) -> bool:
         print("recv type 0x50:", v.hex())
         return True
 
-    @dispatcher.type_handler(0x40)
+    @dispatcher.typeHandler(0x40)
     def on_type_40(v: bytes) -> bool:
         print("recv type 0x40:", v.hex())
         return True

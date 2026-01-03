@@ -20,6 +20,9 @@ Examples:
 
 from __future__ import annotations
 
+__author__ = "UF4"
+__version__ = "1.0.1"
+
 from .COM import (
     Dispatcher,
     FrameDefine,
